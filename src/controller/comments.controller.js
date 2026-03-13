@@ -3,7 +3,7 @@ const supabase = require('../lib/supabase');
 // Obtener comentarios de una raza específica
 exports.getComments = async (req, res) => {
   const { breedId, primaryColor, secondaryColor } = req.query;
-  
+
   try {
     const { data, error } = await supabase
       .from('comments')
@@ -18,7 +18,6 @@ exports.getComments = async (req, res) => {
       return res.status(400).json({ error: error.message });
     }
 
-    // Después de obtener los comentarios:
     const commentsWithLikes = await Promise.all(
       data.map(async (comment) => {
         const { count } = await supabase
@@ -38,9 +37,13 @@ exports.getComments = async (req, res) => {
 
 // Crear un nuevo comentario
 exports.createComment = async (req, res) => {
-  const { user_id, breed_id, primary_color, secondary_color, text, image_url, user_name, user_email } = req.body;
+  // user_id proviene del token JWT validado por el middleware requireAuth
+  const user_id = req.user.id;
+  const { breed_id, primary_color, secondary_color, text, image_url } = req.body;
+  const user_name = req.user.user_metadata?.name || null;
+  const user_email = req.user.email || null;
 
-  if (!user_id || !breed_id || !primary_color || !secondary_color || !text) {
+  if (!breed_id || !primary_color || !secondary_color || !text) {
     return res.status(400).json({ error: 'Faltan campos requeridos' });
   }
 
@@ -54,13 +57,14 @@ exports.createComment = async (req, res) => {
         secondary_color,
         text,
         image_url: image_url || null,
-        user_name: user_name || null,
-        user_email: user_email || null
+        user_name,
+        user_email,
       }])
       .select('*')
       .single();
 
     if (error) {
+      console.error('Error al insertar comentario:', error);
       return res.status(400).json({ error: error.message });
     }
 
@@ -74,10 +78,10 @@ exports.createComment = async (req, res) => {
 exports.updateComment = async (req, res) => {
   const { id } = req.params;
   const { text, image_url } = req.body;
-  const { user_id } = req.body; // Para verificar que el usuario es el propietario
+  // user_id proviene del token JWT validado por el middleware requireAuth
+  const user_id = req.user.id;
 
   try {
-    // Verificar que el comentario pertenece al usuario
     const { data: existingComment, error: fetchError } = await supabase
       .from('comments')
       .select('user_id')
@@ -97,7 +101,7 @@ exports.updateComment = async (req, res) => {
       .update({
         text,
         image_url: image_url || null,
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
       })
       .eq('id', id)
       .select('*')
@@ -107,7 +111,6 @@ exports.updateComment = async (req, res) => {
       return res.status(400).json({ error: error.message });
     }
 
-    // Ya no buscamos datos de usuario, solo devolvemos el comentario actualizado
     res.json({ comment: data });
   } catch (error) {
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -117,10 +120,10 @@ exports.updateComment = async (req, res) => {
 // Eliminar un comentario
 exports.deleteComment = async (req, res) => {
   const { id } = req.params;
-  const { user_id } = req.body;
+  // user_id proviene del token JWT validado por el middleware requireAuth
+  const user_id = req.user.id;
 
   try {
-    // Verificar que el comentario pertenece al usuario
     const { data: existingComment, error: fetchError } = await supabase
       .from('comments')
       .select('user_id')
@@ -152,10 +155,11 @@ exports.deleteComment = async (req, res) => {
 
 // Toggle like en un comentario
 exports.toggleCommentLike = async (req, res) => {
-  const { user_id, comment_id } = req.body;
+  const { comment_id } = req.body;
+  // user_id proviene del token JWT validado por el middleware requireAuth
+  const user_id = req.user.id;
 
   try {
-    // Verificar si ya existe el like
     const { data: existingLike, error: fetchError } = await supabase
       .from('comment_likes')
       .select('id')
@@ -168,7 +172,6 @@ exports.toggleCommentLike = async (req, res) => {
     }
 
     if (existingLike) {
-      // Ya existe el like, así que lo quitamos
       const { error: deleteError } = await supabase
         .from('comment_likes')
         .delete()
@@ -186,7 +189,6 @@ exports.toggleCommentLike = async (req, res) => {
       if (countError) return res.status(400).json({ error: countError.message });
       return res.json({ liked: false, newCount: count });
     } else {
-      // No existe el like, así que lo agregamos
       const { error: insertError } = await supabase
         .from('comment_likes')
         .insert([{ user_id, comment_id }]);
@@ -205,4 +207,4 @@ exports.toggleCommentLike = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: 'Error interno del servidor' });
   }
-}; 
+};

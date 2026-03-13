@@ -2,52 +2,69 @@ const supabase = require('../lib/supabase');
 
 // Toggle like para una raza
 exports.toggleBreedLike = async (req, res) => {
-  const { user_id, breed_id } = req.body;
+  const { breed_id } = req.body;
+  // user_id proviene del token JWT validado por el middleware requireAuth
+  const user_id = req.user.id;
 
-  // Verifica si ya existe el like
-  const { data, error } = await supabase
-    .from('breed_likes')
-    .select('id')
-    .eq('user_id', user_id)
-    .eq('breed_id', breed_id)
-    .maybeSingle();
-
-  if (error) {
-    return res.status(400).json({ error: error.message });
+  if (!breed_id) {
+    return res.status(400).json({ error: 'Falta el parámetro breed_id' });
   }
 
-  if (data) {
-    // Ya existe el like, así que lo quitamos
-    const { error: deleteError } = await supabase
+  try {
+    const { data: existingLike, error: fetchError } = await supabase
       .from('breed_likes')
-      .delete()
+      .select('id')
       .eq('user_id', user_id)
-      .eq('breed_id', breed_id);
-    if (deleteError) return res.status(400).json({ error: deleteError.message });
+      .eq('breed_id', breed_id)
+      .maybeSingle();
 
-    // Obtén el nuevo conteo
+    if (fetchError) {
+      return res.status(400).json({ error: fetchError.message });
+    }
+
+    let liked;
+    if (existingLike) {
+      // Ya existe el like, así que lo quitamos
+      const { error: deleteError } = await supabase
+        .from('breed_likes')
+        .delete()
+        .eq('user_id', user_id)
+        .eq('breed_id', breed_id);
+      if (deleteError) return res.status(400).json({ error: deleteError.message });
+      liked = false;
+    } else {
+      // No existe el like, así que lo agregamos
+      const { error: insertError } = await supabase
+        .from('breed_likes')
+        .insert([{ user_id, breed_id }]);
+      if (insertError) return res.status(400).json({ error: insertError.message });
+      liked = true;
+    }
+
+    // Obtener el nuevo conteo total para esta raza
     const { count, error: countError } = await supabase
       .from('breed_likes')
       .select('*', { count: 'exact', head: true })
       .eq('breed_id', breed_id);
-    if (countError) return res.status(400).json({ error: countError.message });
 
-    return res.json({ liked: false, newCount: count });
-  } else {
-    // No existe el like, así que lo agregamos
-    const { error: insertError } = await supabase
-      .from('breed_likes')
-      .insert([{ user_id, breed_id }]);
-    if (insertError) return res.status(400).json({ error: insertError.message });
+    if (countError) {
+      console.error('Error al contar likes:', countError);
+    } else {
+      // Intentar actualizar el contador en la tabla 'breeds'
+      const { error: updateError } = await supabase
+        .from('breeds')
+        .update({ likes_count: count })
+        .eq('id', breed_id);
 
-    // Obtén el nuevo conteo
-    const { count, error: countError } = await supabase
-      .from('breed_likes')
-      .select('*', { count: 'exact', head: true })
-      .eq('breed_id', breed_id);
-    if (countError) return res.status(400).json({ error: countError.message });
+      if (updateError) {
+        console.warn('No se pudo actualizar breeds.likes_count:', updateError.message);
+      }
+    }
 
-    return res.json({ liked: true, newCount: count });
+    return res.json({ liked, newCount: count || 0 });
+  } catch (error) {
+    console.error('Error fatal en toggleBreedLike:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 

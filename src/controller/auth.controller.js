@@ -11,6 +11,12 @@ exports.register = async (req, res) => {
     }
   });
   if (error) return res.status(400).json({ error: error.message });
+  
+  // Sincronizar usuario
+  if (data.user) {
+    await syncUser(data.user);
+  }
+
   res.json({ user: data.user });
 };
 
@@ -22,24 +28,55 @@ exports.login = async (req, res) => {
     password
   });
   if (error) return res.status(400).json({ error: error.message });
+  
+  // Sincronizar usuario
+  if (data.user) {
+    await syncUser(data.user);
+  }
+
   res.json({ user: data.user, session: data.session });
 };
 
 async function syncUser(supabaseUser) {
-  const { id, email, user_metadata } = supabaseUser;
+  const { id, email, user_metadata, email_confirmed_at } = supabaseUser;
 
-  // Busca en tu tabla users
-  const { data: existingUser } = await supabase
-    .from('users')
-    .select('id')
-    .eq('id', id)
-    .single();
-
-  if (!existingUser) {
-    // Si no existe, lo creas
-    await supabase
+  try {
+    // Busca en tu tabla users
+    const { data: existingUser, error: fetchError } = await supabase
       .from('users')
-      .insert([{ id, email, name: user_metadata?.name || '', created_at: new Date().toISOString() }]);
+      .select('id')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error('Error al buscar usuario para sincronizar:', fetchError);
+      return;
+    }
+
+    if (!existingUser) {
+      // Si no existe, lo creas
+      const { error: insertError } = await supabase
+        .from('users')
+        .insert([{ 
+          id, 
+          email, 
+          name: user_metadata?.name || '', 
+          email_confirmed_at: email_confirmed_at || null,
+          created_at: new Date().toISOString() 
+        }]);
+      
+      if (insertError) console.error('Error al insertar usuario en sincronización:', insertError);
+    } else {
+      // Si existe, actualizas la confirmación de email (por si acaso cambió)
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ email_confirmed_at: email_confirmed_at || null })
+        .eq('id', id);
+      
+      if (updateError) console.error('Error al actualizar usuario en sincronización:', updateError);
+    }
+  } catch (err) {
+    console.error('Error catch en syncUser:', err);
   }
 }
 

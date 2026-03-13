@@ -12,9 +12,10 @@ exports.getLikesCount = async (req, res) => {
 };
 
 exports.toggleLike = async (req, res) => {
-  const { user_id, image_id } = req.body;
+  const { image_id } = req.body;
+  // user_id proviene del token JWT validado por el middleware requireAuth
+  const user_id = req.user.id;
 
-  // Verifica si ya existe el like
   const { data, error } = await supabase
     .from('likes')
     .select('id')
@@ -22,7 +23,7 @@ exports.toggleLike = async (req, res) => {
     .eq('image_id', image_id)
     .single();
 
-  if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+  if (error && error.code !== 'PGRST116') {
     return res.status(400).json({ error: error.message });
   }
 
@@ -34,7 +35,7 @@ exports.toggleLike = async (req, res) => {
       .eq('user_id', user_id)
       .eq('image_id', image_id);
     if (deleteError) return res.status(400).json({ error: deleteError.message });
-    // Obtén el nuevo conteo
+
     const { count, error: countError } = await supabase
       .from('likes')
       .select('*', { count: 'exact', head: true })
@@ -47,7 +48,7 @@ exports.toggleLike = async (req, res) => {
       .from('likes')
       .insert([{ user_id, image_id }]);
     if (insertError) return res.status(400).json({ error: insertError.message });
-    // Obtén el nuevo conteo
+
     const { count, error: countError } = await supabase
       .from('likes')
       .select('*', { count: 'exact', head: true })

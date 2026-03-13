@@ -4,22 +4,21 @@ const supabase = require('../lib/supabase');
 function getStartDate(period) {
   const now = new Date();
   if (period === 'week') {
-    // Últimos 7 días
     now.setDate(now.getDate() - 7);
     return now.toISOString();
   }
   if (period === 'month') {
-    // Últimos 30 días
     now.setDate(now.getDate() - 30);
     return now.toISOString();
   }
-  // All time: no filtro
   return null;
 }
 
 // GET /api/breedLikes/top?period=all|month|week&limit=3
 exports.getTopBreeds = async (req, res) => {
-  const { period = 'all', limit = 3 } = req.query;
+  const { period = 'all' } = req.query;
+  // Sanitizar limit: debe ser un número entero entre 1 y 20
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 3, 1), 20);
   const startDate = getStartDate(period);
 
   let query = supabase
@@ -61,13 +60,12 @@ exports.getTopBreeds = async (req, res) => {
     breedsInfo = breedsData;
   }
 
-  // Mapear el nombre real al ranking
   const topBreeds = sorted.map(([breed_id, likes]) => {
     const breed = breedsInfo.find(b => b.id == breed_id);
     return {
       id: breed_id,
       name: breed ? breed.name : breed_id,
-      likes
+      likes,
     };
   });
 
